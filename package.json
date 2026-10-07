@@ -1,0 +1,67 @@
+{
+    "name": "lknpd",
+    "version": "0.1.0",
+    "description": "TypeScript-клиент неофициального API «Мой налог» (lknpd.nalog.ru) для самозанятых: чеки, аннулирование, поиск, печатная форма",
+    "keywords": [
+        "moy-nalog",
+        "lknpd",
+        "nalog",
+        "самозанятый",
+        "чек",
+        "npd"
+    ],
+    "license": "MIT",
+    "author": "varrcan",
+    "repository": "github:varrcan/lknpd",
+    "homepage": "https://github.com/varrcan/lknpd#readme",
+    "bugs": "https://github.com/varrcan/lknpd/issues",
+    "type": "module",
+    "engines": {
+        "node": ">=20"
+    },
+    "exports": {
+        ".": {
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
+        },
+        "./package.json": "./package.json"
+    },
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.cts",
+    "files": [
+        "dist"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "tsup",
+        "test": "vitest run",
+        "test:bun": "bun test",
+        "lint": "eslint . && prettier --check .",
+        "format": "prettier --write .",
+        "typecheck": "tsc --noEmit",
+        "check:package": "pnpm build && publint --strict && attw --pack .",
+        "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm check:package"
+    },
+    "packageManager": "pnpm@11.5.3",
+    "devDependencies": {
+        "@arethetypeswrong/cli": "^0.18.5",
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^20.19.43",
+        "eslint": "^10.12.0",
+        "eslint-config-prettier": "^10.1.8",
+        "globals": "^17.13.0",
+        "prettier": "^3.9.9",
+        "publint": "^0.3.25",
+        "tsup": "^8.5.1",
+        "typescript": "~6.0.3",
+        "typescript-eslint": "^8.71.1",
+        "vitest": "^4.1.11"
+    }
+}
