@@ -3,7 +3,7 @@
 Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии — [SemVer](https://semver.org/lang/ru/).
 До `1.0.0` публичный API может меняться в минорных версиях.
 
-## [0.1.0] — не опубликован
+## [0.1.0] — 2026-10-07
 
 Первый выпуск.
 
@@ -35,3 +35,5 @@
 - по какому времени (`operationTime` или `registerTime`) фильтруется список;
 - форма ответа аннулирования и `cancellationInfo` — по стороннему справочнику;
 - привязан ли токен к IP.
+
+[0.1.0]: https://github.com/varrcan/lknpd/releases/tag/v0.1.0
