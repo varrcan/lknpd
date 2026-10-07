@@ -351,3 +351,159 @@ describe('MemoryTokenStore', () => {
         await expect(store.load()).resolves.toEqual(session);
     });
 });
+
+describe('Отказ авторизации классифицируется как auth', () => {
+    const SMS = { phone: '9000000000', challengeToken: 'CH', code: '4321' };
+    const fnsReject = (status: number) =>
+        json(status, { code: 'auth.failed', message: 'Отказ ФНС' });
+
+    it('явный вход, 422 — auth с исходными status, code, fnsMessage', async () => {
+        const { client } = makeClient(() => fnsReject(422), { session: null });
+        await expect(client.loginWithPassword(CREDENTIALS)).rejects.toMatchObject({
+            kind: 'auth',
+            outcome: 'rejected',
+            status: 422,
+            code: 'auth.failed',
+            fnsMessage: 'Отказ ФНС',
+        });
+    });
+
+    it('422 входа — пароль не попадает в message, сериализацию и cause', async () => {
+        const password = 'S3cret-Pa55';
+        const { client } = makeClient(
+            () => json(422, { code: 'auth.failed', message: 'Неверные данные' }),
+            { session: null }
+        );
+        const error: unknown = await client
+            .loginWithPassword({ inn: INN, password })
+            .catch((e: unknown) => e);
+        if (!isLknpdError(error)) throw new Error('ожидалась LknpdError');
+        expect(error.kind).toBe('auth');
+        expect(error.message).not.toContain(password);
+        expect(JSON.stringify(error)).not.toContain(password);
+        const cause: unknown = error.cause;
+        expect(isLknpdError(cause)).toBe(true);
+        expect(JSON.stringify(cause)).not.toContain(password);
+        expect(isLknpdError(cause) && cause.message).not.toContain(password);
+    });
+
+    it('обмен SMS-кода, 400 — auth', async () => {
+        const { client } = makeClient(() => fnsReject(400), { session: null });
+        await expect(client.loginWithSms(SMS)).rejects.toMatchObject({
+            kind: 'auth',
+            outcome: 'rejected',
+            status: 400,
+        });
+    });
+
+    it('профиль за ИНН внутри SMS-входа, 403 — auth', async () => {
+        const { client, store } = makeClient(
+            call =>
+                call.path === '/v1/user'
+                    ? json(403, {})
+                    : json(200, { token: 'T', refreshToken: 'R', tokenExpireIn: expiresIn(1e6) }),
+            { session: null }
+        );
+        await expect(client.loginWithSms(SMS)).rejects.toMatchObject({
+            kind: 'auth',
+            outcome: 'rejected',
+            status: 403,
+        });
+        await expect(store.load()).resolves.toBeNull();
+    });
+
+    it('запрос SMS-кода, 422 — http: это не вход', async () => {
+        const { client } = makeClient(() => fnsReject(422));
+        await expect(client.requestSmsCode('9000000000')).rejects.toMatchObject({
+            kind: 'http',
+            outcome: 'rejected',
+            status: 422,
+        });
+    });
+
+    it('вход, 429 — http: временное ограничение', async () => {
+        const { client } = makeClient(() => json(429, {}), { session: null });
+        await expect(client.loginWithPassword(CREDENTIALS)).rejects.toMatchObject({
+            kind: 'http',
+            outcome: 'rejected',
+            status: 429,
+        });
+    });
+
+    it('refresh 400, пароля нет — auth со статусом и code отказа refresh', async () => {
+        const { client } = makeClient(
+            call =>
+                call.path === '/v1/auth/token'
+                    ? json(400, { code: 'refresh.invalid', message: 'Токен недействителен' })
+                    : listOk(),
+            { session: makeSession({ tokenExpireIn: expiresIn(0) }) }
+        );
+        const error: unknown = await client.listIncomes().catch((e: unknown) => e);
+        expect(error).toMatchObject({
+            kind: 'auth',
+            outcome: 'rejected',
+            status: 400,
+            code: 'refresh.invalid',
+            fnsMessage: 'Токен недействителен',
+        });
+        expect(isLknpdError(error) && isLknpdError(error.cause)).toBe(true);
+    });
+
+    it.each([
+        ['без пароля', {}],
+        ['с паролем', { credentials: CREDENTIALS }],
+    ])('refresh 429 %s — http как есть, входа по паролю нет', async (_, options) => {
+        const { client, calls } = makeClient(
+            call => (call.path === '/v1/auth/token' ? json(429, {}) : listOk()),
+            { session: makeSession({ tokenExpireIn: expiresIn(0) }), ...options }
+        );
+        await expect(client.listIncomes()).rejects.toMatchObject({
+            kind: 'http',
+            outcome: 'rejected',
+            status: 429,
+        });
+        expect(paths(calls)).toEqual(['/v1/auth/token']);
+    });
+
+    it('refresh 401, вход 400 при createIncome — auth со статусом 400 и code', async () => {
+        const { client, calls } = makeClient(
+            call => {
+                if (call.path === '/v1/auth/token') return json(401, {});
+                if (call.path === '/v1/auth/lkfl') return fnsReject(400);
+                return json(200, { approvedReceiptUuid: 'x' });
+            },
+            { session: makeSession({ tokenExpireIn: expiresIn(0) }), credentials: CREDENTIALS }
+        );
+        await expect(
+            client.createIncome({ items: [{ name: 'x', amount: '1' }] })
+        ).rejects.toMatchObject({
+            kind: 'auth',
+            outcome: 'rejected',
+            status: 400,
+            code: 'auth.failed',
+            fnsMessage: 'Отказ ФНС',
+        });
+        expect(paths(calls)).toEqual(['/v1/auth/token', '/v1/auth/lkfl']);
+    });
+
+    it('POST /v1/income 400 при живой сессии — http', async () => {
+        const { client } = makeClient(() => fnsReject(400));
+        await expect(
+            client.createIncome({ items: [{ name: 'x', amount: '1' }] })
+        ).rejects.toMatchObject({ kind: 'http', outcome: 'rejected', status: 400 });
+    });
+
+    it('вход 503 при получении токена — not-sent, http', async () => {
+        const { client, calls } = makeClient(
+            call =>
+                call.path === '/v1/auth/lkfl'
+                    ? json(503, {})
+                    : json(200, { approvedReceiptUuid: 'x' }),
+            { session: null, credentials: CREDENTIALS }
+        );
+        await expect(
+            client.createIncome({ items: [{ name: 'x', amount: '1' }] })
+        ).rejects.toMatchObject({ kind: 'http', outcome: 'not-sent', status: 503 });
+        expect(paths(calls)).toEqual(['/v1/auth/lkfl']);
+    });
+});

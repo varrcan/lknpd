@@ -1,4 +1,4 @@
-import { protocolError, validationError } from './errors.js';
+import { LknpdError, isLknpdError, protocolError, validationError } from './errors.js';
 import { formatKopecks, parseAmount, kopecksFromResponse, type Amount } from './money.js';
 import { isRecord, parseIncome, type Income } from './models.js';
 import { DEFAULT_BASE_URL, receiptPrintUrl, trimSlash } from './receipt-url.js';
@@ -224,29 +224,31 @@ export class LknpdClient {
         if (!params.challengeToken || !params.code) {
             throw validationError('loginWithSms: нужны challengeToken и code');
         }
-        return this.#sessions.establish(async () => {
-            const { body } = await this.#transport.request({
-                method: 'POST',
-                path: '/auth/challenge/sms/verify',
-                body: {
-                    phone,
-                    code: params.code,
-                    challengeToken: params.challengeToken,
-                    deviceInfo: this.#deviceInfo(),
-                },
-            });
-            const auth = parseAuthResponse(body, 'SMS-вход');
-            if (auth.refreshToken === undefined) {
-                throw protocolError('SMS-вход: в ответе нет refreshToken');
-            }
-            const inn = auth.inn ?? (await this.#fetchInn(auth.token));
-            return {
-                token: auth.token,
-                refreshToken: auth.refreshToken,
-                tokenExpireIn: auth.tokenExpireIn,
-                inn,
-            };
-        });
+        return this.#sessions.establish(() =>
+            asAuthFailure(async () => {
+                const { body } = await this.#transport.request({
+                    method: 'POST',
+                    path: '/auth/challenge/sms/verify',
+                    body: {
+                        phone,
+                        code: params.code,
+                        challengeToken: params.challengeToken,
+                        deviceInfo: this.#deviceInfo(),
+                    },
+                });
+                const auth = parseAuthResponse(body, 'SMS-вход');
+                if (auth.refreshToken === undefined) {
+                    throw protocolError('SMS-вход: в ответе нет refreshToken');
+                }
+                const inn = auth.inn ?? (await this.#fetchInn(auth.token));
+                return {
+                    token: auth.token,
+                    refreshToken: auth.refreshToken,
+                    tokenExpireIn: auth.tokenExpireIn,
+                    inn,
+                };
+            })
+        );
     }
 
     async createIncome(params: CreateIncomeParams): Promise<CreateIncomeResult> {
@@ -455,7 +457,11 @@ export class LknpdClient {
         };
     }
 
-    async #passwordLogin(credentials: Credentials): Promise<Session> {
+    #passwordLogin(credentials: Credentials): Promise<Session> {
+        return asAuthFailure(() => this.#passwordLoginRequest(credentials));
+    }
+
+    async #passwordLoginRequest(credentials: Credentials): Promise<Session> {
         const { body } = await this.#transport.request({
             method: 'POST',
             path: '/auth/lkfl',
@@ -478,7 +484,11 @@ export class LknpdClient {
         };
     }
 
-    async #refresh(session: Session): Promise<Session> {
+    #refresh(session: Session): Promise<Session> {
+        return asAuthFailure(() => this.#refreshRequest(session));
+    }
+
+    async #refreshRequest(session: Session): Promise<Session> {
         const { body } = await this.#transport.request({
             method: 'POST',
             path: '/auth/token',
@@ -498,6 +508,34 @@ export class LknpdClient {
         const { inn } = expectObject(body, 'Профиль');
         if (typeof inn !== 'string' || inn === '') throw protocolError('Профиль: нет ИНН');
         return inn;
+    }
+}
+
+/**
+ * Отказ 4xx внутри операции входа — потеря авторизации, а не отказ по существу вызова: иначе
+ * сломанный пароль выглядел бы для потребителя как отказ ФНС по чеку. 429 — временное
+ * ограничение, его потребитель пережидает, а не зовёт человека.
+ */
+async function asAuthFailure<T>(op: () => Promise<T>): Promise<T> {
+    try {
+        return await op();
+    } catch (error) {
+        if (
+            !isLknpdError(error) ||
+            error.kind !== 'http' ||
+            error.outcome !== 'rejected' ||
+            error.status === 429
+        ) {
+            throw error;
+        }
+        throw new LknpdError(`Отказ авторизации: ${error.message}`, {
+            kind: 'auth',
+            outcome: 'rejected',
+            ...(error.status !== undefined && { status: error.status }),
+            ...(error.code !== undefined && { code: error.code }),
+            ...(error.fnsMessage !== undefined && { fnsMessage: error.fnsMessage }),
+            cause: error,
+        });
     }
 }
 

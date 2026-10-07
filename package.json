@@ -1,6 +1,6 @@
 {
     "name": "lknpd",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "TypeScript-клиент неофициального API «Мой налог» (lknpd.nalog.ru) для самозанятых: чеки, аннулирование, поиск, печатная форма",
     "keywords": [
         "moy-nalog",

@@ -119,22 +119,40 @@ export class SessionManager {
         const current = await store.load();
         if (current && current.token !== staleToken && !expiresSoon(current)) return current;
 
+        let refreshRejection: LknpdError | undefined;
         if (current) {
             try {
                 const renewed = await refresh(current);
                 await store.save(renewed);
                 return renewed;
             } catch (error) {
-                if (!isLknpdError(error) || error.outcome !== 'rejected') throw error;
+                // 429 — ограничение частоты, а не отказ refresh: вход по паролю ударил бы в тот же
+                // лимит, а потребителю нужно подождать, а не чинить авторизацию.
+                if (!isLknpdError(error) || error.outcome !== 'rejected' || error.status === 429) {
+                    throw error;
+                }
+                refreshRejection = error;
             }
         }
 
         if (!passwordLogin) {
+            if (!refreshRejection) {
+                throw new LknpdError('Нет сессии в TokenStore и пароля для входа', {
+                    kind: 'auth',
+                    outcome: 'rejected',
+                });
+            }
+            const { status, code, fnsMessage } = refreshRejection;
             throw new LknpdError(
-                current
-                    ? 'Обновление токена отклонено, а пароля для повторного входа нет'
-                    : 'Нет сессии в TokenStore и пароля для входа',
-                { kind: 'auth', outcome: 'rejected' }
+                `Обновление токена отклонено, а пароля для повторного входа нет: ${refreshRejection.message}`,
+                {
+                    kind: 'auth',
+                    outcome: 'rejected',
+                    ...(status !== undefined && { status }),
+                    ...(code !== undefined && { code }),
+                    ...(fnsMessage !== undefined && { fnsMessage }),
+                    cause: refreshRejection,
+                }
             );
         }
         const session = await passwordLogin();
