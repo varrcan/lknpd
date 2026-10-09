@@ -1,5 +1,9 @@
 # lknpd
 
+[![npm](https://img.shields.io/npm/v/lknpd)](https://www.npmjs.com/package/lknpd)
+[![CI](https://github.com/varrcan/lknpd/actions/workflows/ci.yml/badge.svg)](https://github.com/varrcan/lknpd/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/lknpd)](LICENSE)
+
 TypeScript-клиент неофициального API [«Мой налог»](https://lknpd.nalog.ru/) для самозанятых:
 регистрация доходов (чеков), аннулирование, поиск и печатная форма.
 
