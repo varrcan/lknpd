@@ -1,0 +1,42 @@
+name: Release
+
+on:
+    push:
+        tags: ['v*']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            # OIDC-токен для trusted publishing npm: без него публикация упадёт на авторизации.
+            id-token: write
+        steps:
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
+            - uses: actions/setup-node@v7
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+                  registry-url: https://registry.npmjs.org
+            # Trusted publishing требует npm >= 11.5.1; бандл Node может отставать.
+            - run: npm install -g npm@latest
+            - run: pnpm install --frozen-lockfile
+            - name: Тег совпадает с версией в package.json
+              run: |
+                  version=$(node -p "require('./package.json').version")
+                  if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+                      echo "::error::Тег $GITHUB_REF_NAME не совпадает с версией $version"
+                      exit 1
+                  fi
+            # Проверки (lint, typecheck, test, check:package) запускает prepublishOnly.
+            # npm, а не pnpm publish: OIDC-обмен документирован только для npm CLI.
+            - run: npm publish --access public
