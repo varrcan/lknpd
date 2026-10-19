@@ -35,7 +35,7 @@ export interface LknpdClientOptions {
 }
 
 export type IncomeType = 'FROM_INDIVIDUAL' | 'FROM_LEGAL_ENTITY' | 'FROM_FOREIGN_AGENCY';
-export type PaymentType = 'CASH' | 'ACCOUNT';
+export type PaymentType = 'CASH' | 'ACCOUNT' | 'WIRE';
 
 export interface IncomeItem {
     name: string;
@@ -141,7 +141,7 @@ const INCOME_TYPES: ReadonlySet<string> = new Set([
     'FROM_FOREIGN_AGENCY',
 ]);
 
-const PAYMENT_TYPES: ReadonlySet<string> = new Set(['CASH', 'ACCOUNT']);
+const PAYMENT_TYPES: ReadonlySet<string> = new Set(['CASH', 'ACCOUNT', 'WIRE']);
 
 const MAX_LIST_LIMIT = 100;
 const FINGERPRINT_WINDOW_MS = 60_000;
@@ -275,7 +275,7 @@ export class LknpdClient {
         const client = buildIncomeClient(params.client);
         const paymentType = params.paymentType ?? 'CASH';
         if (!PAYMENT_TYPES.has(paymentType)) {
-            throw validationError('paymentType: ожидается CASH или ACCOUNT');
+            throw validationError('paymentType: ожидается CASH, ACCOUNT или WIRE');
         }
         const operationTime = this.#time(params.operationTime ?? new Date());
         const totalAmount = formatKopecks(total);

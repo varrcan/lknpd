@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { IncomeItem } from '../src/index.js';
+import type { IncomeItem, PaymentType } from '../src/index.js';
 import { incomeItem, json, makeClient, type RecordedCall } from './helpers.js';
 
 const created = () => json(200, { approvedReceiptUuid: '20abcdef12' });
@@ -41,6 +41,15 @@ describe('createIncome', () => {
             totalAmount: '149.00',
         });
     });
+
+    it.each<PaymentType>(['CASH', 'ACCOUNT', 'WIRE'])(
+        'передаёт paymentType %s',
+        async paymentType => {
+            const { client, calls } = makeClient(created);
+            await client.createIncome({ items: [{ name: 'x', amount: '1' }], paymentType });
+            expect(body(calls[0]).paymentType).toBe(paymentType);
+        }
+    );
 
     it('149.90 × 3 → 449.70', async () => {
         const { client, calls } = makeClient(created);
